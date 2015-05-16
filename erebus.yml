@@ -1,0 +1,82 @@
+---
+
+- hosts: erebus
+  user: root
+  sudo: true
+
+  tasks:
+
+    # Some basic host setup stuff
+    - name: add nginx and node ppas
+      action: apt_repository repo=$item state=present
+      with_items:
+        - ppa:nginx/stable
+
+    - name: install initial packages
+      action: apt pkg=$item state=installed
+      with_items:
+        - build-essential
+        - libmysqlclient-dev
+        - python-dev
+        - python-pip
+        - ufw
+        - git-core
+        - nginx
+
+    - name: install various libraries with pip
+      action: pip name=$item state=present
+      with_items:
+        - virtualenv
+        - supervisor
+        - uwsgi
+
+    # Start setting up the actual app
+    - name: create webapps directory
+      action: file dest=/srv/webapps state=directory
+
+    - name: ensure log directory
+      action: file dest=${webapps_dir}/${app_name}/log state=directory
+
+    - name: deploy code from repository
+      action: git repo=$repo_url dest=${webapps_dir}/${app_name}/src remote=$repo_remote version=$repo_version
+
+    - name: install dependencies into virtualenv
+      action: pip requirements=${webapps_dir}/${app_name}/src/requirements.txt virtualenv=${webapps_dir}/${app_name}/venv state=present
+
+    # Supervisord stuff
+    - name: create supervisord config folder
+      action: file dest=/etc/supervisor state=directory owner=root
+
+    - name: create supervisord config
+      action: template src=templates/supervisord.conf dest=/etc/supervisord.conf
+
+    - name: create supervisord init script
+      action: template src=templates/supervisord.sh dest=/etc/init.d/supervisord mode=0755
+
+    - name: start supervisord service and have it run during system startup
+      action: service name=supervisord state=started enabled=yes
+
+    - name: create supervisor program config
+      action: template src=templates/supervisor.ini dest=/etc/supervisor/${app_name}.ini
+      notify:
+        - restart app
+
+    # NGINX stuff
+    - name: remove default nginx site
+      action: file path=/etc/nginx/sites-enabled/default state=absent
+
+    - name: write nginx.conf
+      action: template src=templates/nginx.conf dest=/etc/nginx/nginx.conf
+
+    - name: link nginx config
+      action: file src=/etc/nginx/sites-available/${app_name}.conf dest=/etc/nginx/sites-enabled/${app_name}.conf state=link
+
+    - name: start app
+      action: supervisorctl name=${app_name} state=started
+
+  handlers:
+    - name: restart app
+      action: supervisorctl name=${app_name} state=restarted
+
+    - name: restart nginx
+      action: service name=nginx state=restarted
