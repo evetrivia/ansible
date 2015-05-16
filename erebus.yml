@@ -4,47 +4,58 @@
   user: root
   sudo: true
 
+  vars:
+    app_name: erebus
+    repo_url: https://github.com/evetrivia/erebus.git
+    repo_remote: origin
+    repo_version: master
+    webapps_dir: /srv/webapps
+    wsgi_file: wsgi.py
+    wsgi_callable: app
+
   tasks:
 
     # Some basic host setup stuff
-    - name: add nginx and node ppas
-      action: apt_repository repo=$item state=present
-      with_items:
-        - ppa:nginx/stable
+    - name: Update servers package cache.
+      apt: update_cache=yes
 
-    - name: install initial packages
-      action: apt pkg=$item state=installed
+    - name: Upgrade all installed packages.
+      apt: upgrade=full
+
+    - name: Add NGINX and node PPAs
+      action: apt_repository repo={{ item }} state=present
       with_items:
+        - ppa: nginx/stable
+
+    - name: Install initial packages.
+      action: apt pkg={{ item }} state=installed
+      with_items:
+        - ufw
+        - nginx
+        - git-core
+        - python-pip
+        - python-dev
         - build-essential
         - libmysqlclient-dev
-        - python-dev
-        - python-pip
-        - ufw
-        - git-core
-        - nginx
 
-    - name: install various libraries with pip
-      action: pip name=$item state=present
+    - name: Install various libraries with pip.
+      action: pip name={{ item }} state=present
       with_items:
-        - virtualenv
-        - supervisor
         - uwsgi
+        - supervisor
 
     # Start setting up the actual app
-    - name: create webapps directory
-      action: file dest=/srv/webapps state=directory
-
-    - name: ensure log directory
+    - name: Create a directory applications for the logs.
       action: file dest=${webapps_dir}/${app_name}/log state=directory
 
-    - name: deploy code from repository
+    - name: Lets get the code from GitHub.
       action: git repo=$repo_url dest=${webapps_dir}/${app_name}/src remote=$repo_remote version=$repo_version
 
-    - name: install dependencies into virtualenv
-      action: pip requirements=${webapps_dir}/${app_name}/src/requirements.txt virtualenv=${webapps_dir}/${app_name}/venv state=present
+    - name: Install the applications requirements.
+      action: pip requirements=${webapps_dir}/${app_name}/src/requirements.txt state=present
 
     # Supervisord stuff
-    - name: create supervisord config folder
+    - name: Create the supervisord config folder
       action: file dest=/etc/supervisor state=directory owner=root
 
     - name: create supervisord config
