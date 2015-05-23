@@ -20,23 +20,24 @@
       apt: update_cache=yes
 
     - name: Upgrade all installed packages.
-      apt: upgrade=full
-
-    - name: Add NGINX and node PPAs
-      action: apt_repository repo={{ item }} state=present
-      with_items:
-        - ppa: nginx/stable
+      apt: upgrade=dist
 
     - name: Install initial packages.
       action: apt pkg={{ item }} state=installed
       with_items:
         - ufw
-        - nginx
+        - nginx-full
         - git-core
         - python-pip
         - python-dev
         - build-essential
         - libmysqlclient-dev
+
+    - name: Make sure apache doesn't fucking exist.
+      action: apt pkg=apache2 state=absent
+
+    - name: Ensure pip is latest.
+      action: pip name=pip state=latest
 
     - name: Install various libraries with pip.
       action: pip name={{ item }} state=present
@@ -49,14 +50,17 @@
       action: file dest=${webapps_dir}/${app_name}/log state=directory
 
     - name: Lets get the code from GitHub.
-      action: git repo=$repo_url dest=${webapps_dir}/${app_name}/src remote=$repo_remote version=$repo_version
+      action: git repo={{ repo_url }} dest={{ webapps_dir }}/{{ app_name }}/src remote={{ repo_remote }} version={{ repo_version }}
 
     - name: Install the applications requirements.
-      action: pip requirements=${webapps_dir}/${app_name}/src/requirements.txt state=present
+      action: pip requirements={{ webapps_dir }}/{{ app_name }}/src/requirements.txt state=present
 
     # Supervisord stuff
     - name: Create the supervisord config folder
       action: file dest=/etc/supervisor state=directory owner=root
+
+    - name: Ensure log directory
+      action: file dest={{ webapps_dir }}/{{ app_name }}/log state=directory
 
     - name: create supervisord config
       action: template src=templates/supervisord.conf dest=/etc/supervisord.conf
@@ -68,9 +72,7 @@
       action: service name=supervisord state=started enabled=yes
 
     - name: create supervisor program config
-      action: template src=templates/supervisor.ini dest=/etc/supervisor/${app_name}.ini
-      notify:
-        - restart app
+      action: template src=templates/supervisor.ini dest=/etc/supervisor/{{ app_name }}.ini
 
     # NGINX stuff
     - name: remove default nginx site
@@ -79,15 +81,14 @@
     - name: write nginx.conf
       action: template src=templates/nginx.conf dest=/etc/nginx/nginx.conf
 
+    - name: create nginx site config
+      action: template src=templates/{{ app_name }}.conf dest=/etc/nginx/sites-available/{{ app_name }}.conf
+
     - name: link nginx config
-      action: file src=/etc/nginx/sites-available/${app_name}.conf dest=/etc/nginx/sites-enabled/${app_name}.conf state=link
+      action: file src=/etc/nginx/sites-available/{{ app_name }}.conf dest=/etc/nginx/sites-enabled/{{ app_name }}.conf state=link
 
-    - name: start app
-      action: supervisorctl name=${app_name} state=started
-
-  handlers:
     - name: restart app
-      action: supervisorctl name=${app_name} state=restarted
+      action: supervisorctl name={{ app_name }} state=restarted
 
     - name: restart nginx
       action: service name=nginx state=restarted
