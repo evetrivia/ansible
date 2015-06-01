@@ -1,0 +1,7 @@
+---
+
+# Config values for the initial server setup stuff
+SSH_PORT: 4444
+DEPLOY_USER_NAME: deploy
+DEPLOY_USER_PASSWORD: DerpDerpHerpDerp
+DEPLOY_USER_PUBLIC_KEY: ~/.vagrat.d/insecure_public_key

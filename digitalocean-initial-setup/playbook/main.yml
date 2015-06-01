@@ -1,0 +1,81 @@
+---
+
+- hosts: all
+  sudo: true
+
+  tasks:
+    # Gotta start somewhere. Hostname it is.
+    - name: Set the servers host name.
+      hostname: name={{ inventory_hostname }}
+
+    # Ensure we have an updated server to start with.
+    - name: Update the servers apt cache.
+      apt: update_cache=yes
+
+    - name: Upgraded installed packages.
+      apt: upgrade=full
+
+    # Fail2Ban
+    - name: Install fail2ban.
+      apt: pkg=fail2ban state=present
+
+    - name: Ensure fail2ban is running and enabled on boot.
+      service: name=fail2ban state=started enabled=yes
+
+    # Setup SSH
+    - name: Update SSH configuration to be more secure.
+      lineinfile: >
+        dest=/etc/ssh/sshd_config
+        regexp="{{ item.regexp }}"
+        line="{{ item.line }}"
+        state=present
+      with_items:
+        - { regexp: "^PasswordAuthentication", line: "PasswordAuthentication no" }
+        - { regexp: "^PermitRootLogin", line: "PermitRootLogin no" }
+        - { regexp: "^Port", line: "Port {{ SSH_PORT }}" }
+
+    - name: Restart the SSH service.
+      service: name=ssh state=restarted
+
+    # Setup unattended upgrades
+    - name: Install unattended upgrades package.
+      apt: pkg=unattended-upgrades state=installed
+
+    - name: Copy unattended-upgrades configuration files in place.
+      template: >
+        src=templates/{{ item }}.j2
+        dest=/etc/apt/apt.conf.d/{{ item }}
+        owner=root group=root mode=0644
+      with_items:
+        - 10periodic
+        - 50unattended-upgrades
+
+    # Setup a firewall
+    - name: Install ufw.
+      apt: pkg=ufw state=present
+
+    - name: Setup ufw.
+      ufw: state=enabled policy=deny
+
+    - name: Allow SSH traffic.
+      ufw: rule=allow port={{ SSH_PORT }} proto=tcp
+
+    # Setup users
+    - name: Add the deploy user.
+      user: >
+        name={{ DEPLOY_USER_NAME }}
+        password={{ DEPLOY_USER_PASSWORD }}
+        shell=/bin/bash
+
+    - name: Add authorized keys for deploy user
+      authorized_key: >
+        user={{ DEPLOY_USER_NAME }}
+        key="{{ lookup('file', DEPLOY_USER_PUBLIC_KEY) }}"
+
+    - name: Add deploy user to sudoers.
+      lineinfile: >
+        dest=/etc/sudoers
+        regexp="{{ DEPLOY_USER_NAME }} ALL"
+        line="{{ DEPLOY_USER_NAME }} ALL=(ALL) NOPASSWD: ALL"
+        state=present
+        validate="visudo -cf %s"
